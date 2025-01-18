@@ -1,0 +1,35 @@
+{
+  "title": "Super Template",
+  "config": {
+    "step": {
+      "user": {
+        "title": "New Super Template entity",
+        "data": {
+          "__template": "Template"
+        }
+      },
+      "config": {
+        "title": "Configure Super Template entity",
+        "data": {
+        }
+      }
+    },
+    "error": {
+      "not_implemented": "Not implemented"
+    }
+  },
+  "issues": {
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Super Template entity",
+        "data": {
+        }
+      }
+    },
+    "error": {
+      "not_implemented": "Not implemented"
+    }
+  }
+}

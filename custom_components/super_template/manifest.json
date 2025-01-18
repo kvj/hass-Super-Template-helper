@@ -1,0 +1,13 @@
+{
+  "domain": "super_template",
+  "name": "Super Template",
+  "documentation": "https://github.com/kvj/hass-Super-Template-helper",
+  "issue_tracker": "https://github.com/kvj/hass-Super-Template-helper/issues",
+  "dependencies": [],
+  "codeowners": ["@kvj"],
+  "requirements": [],
+  "iot_class": "local_polling",
+  "config_flow": true,
+  "integration_type": "helper",
+  "version": "0.1.0"
+}

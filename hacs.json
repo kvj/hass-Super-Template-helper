@@ -1,0 +1,5 @@
+{
+    "name": "Super Template helper",
+    "domains": ["sensor"],
+    "render_readme": true
+}
