@@ -173,6 +173,8 @@ class Coordinator(DataUpdateCoordinator):
                 continue
             result[key] = self._apply_templates(value, ctx)
         result[SCHEMA_ATTRS] = self._apply_templates(entity_tmpl[SCHEMA_ATTRS], ctx)
+        if "available" not in result:
+            result["available"] = True
         return result
     
     async def async_load(self):
@@ -190,8 +192,11 @@ class Coordinator(DataUpdateCoordinator):
             td = dt.parse_duration(self._template[SCHEMA_UPDATE_INTERVAL])
             if td:
                 self.update_interval = td
-
-        self._update_state(await self._async_update_entity(self._template, self._entity_tmpl))
+        try:
+            self._update_state(await self._async_update_entity(self._template, self._entity_tmpl))
+        except:
+            _LOGGER.exception(f"async_load: failed to update state at the startup: {self._config}")
+            self._update_state({"available": False})
         _LOGGER.info(f"async_load: configured with config = {self._config}, initial state = {self.data}, update every = {self.update_interval}")
         if len(entity_ids):
             self._on_entity_state_handler = event.async_track_state_change(
