@@ -13,6 +13,9 @@ from homeassistant.helpers import (
     device_registry,
     script,
 )
+from homeassistant.util import (
+    dt,
+)
 
 from homeassistant.const import (
     EntityCategory,
@@ -38,8 +41,8 @@ async def async_get_templates(hass: HomeAssistant):
 async def async_get_template(hass: HomeAssistant, id: str):
     return hass.data.get(DOMAIN, {}).get(id, {})
 
-async def async_get_variables(hass: HomeAssistant, config: dict):
-    config = config.get("variables", {})
+async def async_get_arguments(hass: HomeAssistant, config: dict):
+    config = config.get(SCHEMA_ARGUMENTS, {})
     return {key: (value if value else {}) for key, value in config.items()}
 
 def _build_context(hass: HomeAssistant, variables: dict, config: dict):
@@ -56,8 +59,8 @@ def _build_context(hass: HomeAssistant, variables: dict, config: dict):
 
 async def async_render_name(hass: HomeAssistant, id: str, config: dict):
     tmpl = await async_get_template(hass, id)
-    ctx, _ = _build_context(hass, await async_get_variables(hass, tmpl), config)
-    tmpl = template.Template(tmpl.get("name", ""), hass)
+    ctx, _ = _build_context(hass, await async_get_arguments(hass, tmpl), config)
+    tmpl = template.Template(tmpl.get("name", "").strip(), hass)
     return tmpl.async_render(ctx)
 
 class Coordinator(DataUpdateCoordinator):
@@ -69,7 +72,7 @@ class Coordinator(DataUpdateCoordinator):
             name=DOMAIN,
             setup_method=self._async_setup,
             update_method=self._async_update,
-            update_interval=timedelta(seconds=1),
+            update_interval=timedelta(minutes=1),
             always_update=False,
         )
         self._entry = entry
@@ -79,36 +82,52 @@ class Coordinator(DataUpdateCoordinator):
         self._template = None
 
     def _build_entity_template(self, config: dict, variables: dict):
-        result = {"attrs": {}}
+        result = {SCHEMA_ATTRS: {}}
         entity_ids = set()
+        result[SCHEMA_VARIABLES] = self._templatify(config.get(SCHEMA_VARIABLES, {}))
+        ctx = self._extend_context(variables, result[SCHEMA_VARIABLES])
         def _template_to_entity_ids(tmpl: template.Template):
-            entity_ids.update(tmpl.async_render_to_info(variables=variables).entities)
+            entity_ids.update(tmpl.async_render_to_info(variables=ctx).entities)
         for key in COMMON_PROPS + DOMAIN_PROPS.get(config.get("type"), ()):
             if key in config:
                 if isinstance(config[key], str):
-                    result[key] = template.Template(config[key], self.hass)
+                    result[key] = template.Template(config[key].strip(), self.hass)
                     _template_to_entity_ids(result[key])
                 else:
                     result[key] = config[key]
-        for key, value in config.get("attrs", {}).items():
+        for key, value in config.get(SCHEMA_ATTRS, {}).items():
             if isinstance(value, str):
-                result["attrs"][key] = template.Template(value, self.hass)
+                result[SCHEMA_ATTRS][key] = template.Template(value.strip(), self.hass)
+                _template_to_entity_ids(result[SCHEMA_ATTRS][key])
             else:
-                result["attrs"][key] = value
+                result[SCHEMA_ATTRS][key] = value
+        for key, obj in config.items():
+            if key.startswith("on_") and obj:
+                result[key] = self._templatify(obj)
         return (result, entity_ids)
     
-    def _object_with_templates(self, obj, variables: dict):
+    def _templatify(self, obj):
         def _one_object(obj):
             if isinstance(obj, list):
                 return [_one_object(item) for item in obj]
             if isinstance(obj, dict):
-                return {_one_object(key): _one_object(item) for key, item in obj.items()}
+                return {key: _one_object(item) for key, item in obj.items()}
             if isinstance(obj, str):
-                tmpl = template.Template(obj, self.hass)
-                return tmpl.async_render(variables=variables)
+                return template.Template(obj.strip(), self.hass)
             return obj
         return _one_object(obj)
-
+    
+    def _apply_templates(self, obj, variables: dict):
+        def _one_object(obj):
+            if isinstance(obj, list):
+                return [_one_object(item) for item in obj]
+            if isinstance(obj, dict):
+                return {key: _one_object(item) for key, item in obj.items()}
+            if isinstance(obj, template.Template):
+                return obj.async_render(variables=variables)
+            return obj
+        return _one_object(obj)
+    
     async def _async_setup(self): # Startup
         self.data = {}
 
@@ -136,18 +155,24 @@ class Coordinator(DataUpdateCoordinator):
     def load_options(self):
         self._config = self._entry.as_dict()["options"]
 
+    def _extend_context(self, context: dict, variables: dict):
+        result = { **context }
+        for key, value in variables.items():
+            value_ = self._apply_templates(value, result)
+            _LOGGER.debug(f"_extend_context: variable {key} = {value_}")
+            result[key] = value_
+        return result
+
     async def _async_update_entity(self, config: dict, entity_tmpl: dict):
-        ctx, _ = _build_context(self.hass, await async_get_variables(self.hass, config), self._config)
-        def _apply_tmpl_to_dict(tmpl: dict):
-            result = {}
-            for key, value in tmpl.items():
-                if isinstance(value, template.Template):
-                    result[key] = value.async_render(variables=ctx)
-                else:
-                    result[key] = value
-            return result
-        result = _apply_tmpl_to_dict(entity_tmpl)
-        result["attrs"] = _apply_tmpl_to_dict(entity_tmpl["attrs"])
+        ctx, _ = _build_context(self.hass, await async_get_arguments(self.hass, config), self._config)
+        ctx = self._extend_context(ctx, entity_tmpl.get(SCHEMA_VARIABLES, {}))
+
+        result = {}
+        for key, value in entity_tmpl.items():
+            if key in (SCHEMA_VARIABLES, SCHEMA_ATTRS) or key.startswith("on_"):
+                continue
+            result[key] = self._apply_templates(value, ctx)
+        result[SCHEMA_ATTRS] = self._apply_templates(entity_tmpl[SCHEMA_ATTRS], ctx)
         return result
     
     async def async_load(self):
@@ -155,13 +180,19 @@ class Coordinator(DataUpdateCoordinator):
         _LOGGER.debug(f"async_load: {self._config}")
         self._template_name = self._config[CONF_TEMPLATE]
         self._template = await async_get_template(self.hass, self._template_name)
-        ctx, var_entity_ids = _build_context(self.hass, await async_get_variables(self.hass, self._template), self._config)
+        ctx, var_entity_ids = _build_context(self.hass, await async_get_arguments(self.hass, self._template), self._config)
         entity_tmpl, entity_ids = self._build_entity_template(self._template, ctx)
         _LOGGER.debug(f"async_load: entity IDs: {entity_ids}, {var_entity_ids}")
         entity_ids.update(var_entity_ids)
         self._entity_tmpl = entity_tmpl
+
+        if SCHEMA_UPDATE_INTERVAL in self._template:
+            td = dt.parse_duration(self._template[SCHEMA_UPDATE_INTERVAL])
+            if td:
+                self.update_interval = td
+
         self._update_state(await self._async_update_entity(self._template, self._entity_tmpl))
-        _LOGGER.info(f"async_load: configured with config = {self._config}, initial state = {self.data}")
+        _LOGGER.info(f"async_load: configured with config = {self._config}, initial state = {self.data}, update every = {self.update_interval}")
         if len(entity_ids):
             self._on_entity_state_handler = event.async_track_state_change(
                 self.hass, entity_ids, action=self._async_on_state_change
@@ -188,20 +219,21 @@ class Coordinator(DataUpdateCoordinator):
         if name not in self._template:
             _LOGGER.warning(f"async_execute_action: not configured action: {name}")
             return
-        actions = self._template[name]
+        actions = self._entity_tmpl[name]
         if not isinstance(actions, list):
             actions = [actions]
 
-        variables, _ = _build_context(self.hass, await async_get_variables(self.hass, self._template), self._config)
+        ctx, _ = _build_context(self.hass, await async_get_arguments(self.hass, self._template), self._config)
         if extra:
-            variables = {
+            ctx = {
                 **extra,
-                **variables,
+                **ctx,
             }
+        ctx = self._extend_context(ctx, self._entity_tmpl.get(SCHEMA_VARIABLES, {}))
         context = Context()
-        actions = self._object_with_templates(actions, variables)
+        actions = self._apply_templates(actions, ctx)
         script_ = script.Script(self.hass, actions, f"_st_{self._entry_id}_{name}", DOMAIN, top_level=False)
-        _LOGGER.debug(f"async_execute_action: {name} with {variables} and {extra}")
+        _LOGGER.debug(f"async_execute_action: {name} with {ctx} and {extra}")
         result = await script_.async_run(context=context)
         _LOGGER.debug(f"async_execute_action: result: {result}")
 
@@ -244,4 +276,4 @@ class BaseEntity(CoordinatorEntity):
     
     @property
     def state_attributes(self):
-        return self.coordinator.data.get("attrs", {})
+        return self.coordinator.data.get(SCHEMA_ATTRS, {})

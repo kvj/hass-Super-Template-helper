@@ -27,7 +27,8 @@ class _Entity(BaseEntity, sensor.SensorEntity):
     
     @property
     def state_class(self):
-        return self.coordinator.data.get("state_class")
+        if value := self.coordinator.data.get("state_class"):
+            return sensor.const.SensorStateClass(value)
     
     @property
     def suggested_display_precision(self):
@@ -40,4 +41,7 @@ class _Entity(BaseEntity, sensor.SensorEntity):
     @property
     def native_value(self):
         return self.coordinator.data.get("value")
-    
+
+    @property
+    def options(self):
+        return self.coordinator.data.get("options")

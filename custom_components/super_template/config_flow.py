@@ -26,7 +26,7 @@ from .constants import (
 
 from .coordinator import (
     async_get_templates,
-    async_get_variables,
+    async_get_arguments,
     async_render_name,
     async_get_template,
 )
@@ -43,7 +43,7 @@ CONFIG_SCHEMA = vol.Schema({
 async def _build_config_schema(step: SchemaCommonFlowHandler):
     _LOGGER.debug(f"_build_user_schema: {step.options}, {step.flow_state}")
     config = await async_get_template(async_get_hass(), step.options[CONF_TEMPLATE])
-    variables = await async_get_variables(async_get_hass(), config)
+    variables = await async_get_arguments(async_get_hass(), config)
     schema = {}
     for key, obj in variables.items():
         selector_ = obj.get("selector", {"text": {}})

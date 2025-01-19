@@ -1,8 +1,6 @@
 from __future__ import annotations
-from .constants import (
-    DOMAIN, 
-    PLATFORMS,
-)
+from .constants import *
+
 from .coordinator import Coordinator
 
 from homeassistant.core import HomeAssistant
@@ -19,11 +17,14 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 
-_VAR_SCHEMA = vol.Schema({
+_SIMPLE_VALUE = vol.Any(str, bool, int, float)
+_COMPLEX_VALUE = vol.Any(str, bool, int, float, dict, list)
+
+_ARG_SCHEMA = vol.Schema({
     vol.Optional("optional"): bool,
     vol.Optional("selector"): vol.Schema({}, extra=vol.ALLOW_EXTRA),
     vol.Optional("description"): str,
-    vol.Optional("default"): vol.Any(str, bool, int, float)
+    vol.Optional("default"): _SIMPLE_VALUE
 })
 
 _TMPL_SCHEMA = vol.Schema({
@@ -33,8 +34,10 @@ _TMPL_SCHEMA = vol.Schema({
     vol.Optional("icon"): str,
     vol.Optional("value"): str,
     vol.Optional("unit_of_measurement"): str,
-    vol.Optional("attrs"): {str: vol.Any(str, bool, int, float)},
-    vol.Optional("variables"): {str: _VAR_SCHEMA},
+    vol.Optional(SCHEMA_ATTRS): {str: _SIMPLE_VALUE},
+    vol.Optional(SCHEMA_ARGUMENTS): {str: _ARG_SCHEMA},
+    vol.Optional(SCHEMA_VARIABLES): {str: _COMPLEX_VALUE},
+    vol.Optional(SCHEMA_UPDATE_INTERVAL): str,
 }, extra=vol.ALLOW_EXTRA)
 
 CONFIG_SCHEMA = vol.Schema({
