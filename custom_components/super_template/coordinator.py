@@ -1,5 +1,6 @@
 from homeassistant.core import HomeAssistant, Context
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.config_entries import ConfigEntry
 
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -11,6 +12,8 @@ from homeassistant.helpers import (
     event,
     template,
     device_registry,
+    area_registry,
+    entity_registry,
     script,
 )
 from homeassistant.util import (
@@ -45,16 +48,72 @@ async def async_get_arguments(hass: HomeAssistant, config: dict):
     config = config.get(SCHEMA_ARGUMENTS, {})
     return {key: (value if value else {}) for key, value in config.items()}
 
+def __multiple_maybe(value, callback):
+    if isinstance(value, list):
+        result = []
+        for item in value:
+            if val := callback(item):
+                result.append(val)
+    if val := callback(value):
+        return val
+    return None
+
+def __entity_selector(hass: HomeAssistant, value, entity_ids: set):
+    if isinstance(value, list):
+        result = []
+        for item in value:
+            entity_ids.add(item)
+            if val := hass.states.get(item):
+                result.append(val)
+        return result
+    entity_ids.add(value)
+    if val := hass.states.get(value):
+        return val
+    return None
+
+def __area_selector(hass: HomeAssistant, value):
+    def cb(value):
+        if area := area_registry.async_get(hass).async_get_area(value):
+            return {"id": area.id, "name": area.name, "normalized_name": area.normalized_name, "icon": area.icon}
+        return None
+    return __multiple_maybe(value, cb)
+
+def __device_selector(hass: HomeAssistant, value):
+    def cb(value):
+        if val := device_registry.async_get(hass).async_get(value):
+            return val.dict_repr
+        return None
+    return __multiple_maybe(value, cb)
+
+def __config_entry_selector(hass: HomeAssistant, value):
+    def cb(value):
+        if val := hass.config_entries.async_get_entry(value):
+            return val.as_dict()
+        return None
+    return __multiple_maybe(value, cb)
+
 def _build_context(hass: HomeAssistant, variables: dict, config: dict):
     result = {}
     entity_ids = set()
     for key, obj in variables.items():
         value = config.get(key)
-        if "entity" in obj.get("selector", {}) and value:
-            entity_ids.add(value)
-            value = hass.states.get(value)
+        selector = obj.get("selector", {})
+        if "entity" in selector:
+            result[f"__{key}"] = value
+            value = __entity_selector(hass, value, entity_ids)
+        if "device" in selector:
+            result[f"__{key}"] = value
+            value = __device_selector(hass, value)
+        if "config_entry" in selector:
+            result[f"__{key}"] = value
+            value = __config_entry_selector(hass, value)
+        if "area" in selector:
+            result[f"__{key}"] = value
+            value = __area_selector(hass, value)
+        if "template" in selector and isinstance(value, str):
+            value = template.Template(value, hass).async_render(result)
         result[key] = value
-    _LOGGER.debug(f"_build_context: {result}, {config}")
+    _LOGGER.debug(f"_build_context: {config}, {result}, {entity_ids}")
     return (result, entity_ids)
 
 async def async_render_name(hass: HomeAssistant, id: str, config: dict):
@@ -65,7 +124,7 @@ async def async_render_name(hass: HomeAssistant, id: str, config: dict):
 
 class Coordinator(DataUpdateCoordinator):
 
-    def __init__(self, hass, entry):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
         super().__init__(
             hass,
             _LOGGER,
@@ -131,10 +190,10 @@ class Coordinator(DataUpdateCoordinator):
     async def _async_setup(self): # Startup
         self.data = {}
 
-    async def _async_update(self): # Every second
+    async def _async_update(self): # Every second or update_interval
         if not self.template_loaded():
             return self.data
-        return await self._async_update_entity(self._template, self._entity_tmpl)
+        return await self._async_update_entity(self._template, self._entity_tmpl, op="timer")
 
     def _update_state(self, data: dict):
         _LOGGER.debug(f"_update_state: new state: {data}")
@@ -145,9 +204,10 @@ class Coordinator(DataUpdateCoordinator):
 
     async def _async_on_state_change(self, entity_id: str, from_state, to_state):
         _LOGGER.debug(f"_async_on_state_change: {entity_id}")
-        new_state = await self._async_update_entity(self._template, self._entity_tmpl)
-        if new_state != self.data:
-            self._update_state(new_state)
+        if self.template_loaded():
+            new_state = await self._async_update_entity(self._template, self._entity_tmpl, op="state")
+            if new_state != self.data:
+                self._update_state(new_state)
     
     def state_by_entity_id(self, entity_id: str | None):
         return self.hass.states.get(entity_id) if entity_id else None
@@ -157,13 +217,16 @@ class Coordinator(DataUpdateCoordinator):
 
     def _extend_context(self, context: dict, variables: dict):
         result = { **context }
+        self_entities = entity_registry.async_entries_for_config_entry(entity_registry.async_get(self.hass), self._entry_id)
+        if len(self_entities):
+            result["this"] = self.hass.states.get(self_entities[0].entity_id)
         for key, value in variables.items():
             value_ = self._apply_templates(value, result)
             _LOGGER.debug(f"_extend_context: variable {key} = {value_}")
             result[key] = value_
         return result
 
-    async def _async_update_entity(self, config: dict, entity_tmpl: dict):
+    async def _async_update_entity(self, config: dict, entity_tmpl: dict, op: str = "other"):
         ctx, _ = _build_context(self.hass, await async_get_arguments(self.hass, config), self._config)
         ctx = self._extend_context(ctx, entity_tmpl.get(SCHEMA_VARIABLES, {}))
 
@@ -175,6 +238,8 @@ class Coordinator(DataUpdateCoordinator):
         result[SCHEMA_ATTRS] = self._apply_templates(entity_tmpl[SCHEMA_ATTRS], ctx)
         if "available" not in result:
             result["available"] = True
+        if "on_update" in entity_tmpl:
+            await self.async_execute_action("on_update", {"op": op})
         return result
     
     async def async_load(self):
@@ -193,7 +258,7 @@ class Coordinator(DataUpdateCoordinator):
             if td:
                 self.update_interval = td
         try:
-            self._update_state(await self._async_update_entity(self._template, self._entity_tmpl))
+            self._update_state(await self._async_update_entity(self._template, self._entity_tmpl, op="startup"))
         except:
             _LOGGER.exception(f"async_load: failed to update state at the startup: {self._config}")
             self._update_state({"available": False})
@@ -218,11 +283,11 @@ class Coordinator(DataUpdateCoordinator):
             return [entity_cls(self)]
         return []
     
-    async def async_execute_action(self, name: str, extra: dict):
+    async def async_execute_action(self, name: str, extra: dict = None):
         if not self.template_loaded():
             return
         if name not in self._template:
-            _LOGGER.warning(f"async_execute_action: not configured action: {name}")
+            _LOGGER.warning(f"async_execute_action: not configured action: {name}, with extra {extra}")
             return
         actions = self._entity_tmpl[name]
         if not isinstance(actions, list):
@@ -281,4 +346,42 @@ class BaseEntity(CoordinatorEntity):
     
     @property
     def state_attributes(self):
-        return self.coordinator.data.get(SCHEMA_ATTRS, {})
+        super_value = super().state_attributes
+        return {
+            **(super_value if super_value else {}),
+            **self.coordinator.data.get(SCHEMA_ATTRS, {})
+        }
+    
+    def data(self, name: str, default=None):
+        return self.coordinator.data.get(name, default)
+    
+    def data_as_enum(self, name: str, cls, default=None):
+        if val := self.data(name):
+            return cls(val).value
+        return default
+
+    def data_as_tuple(self, name: str, cls, default=None):
+        if val := self.data(name):
+            if isinstance(val, list):
+                return tuple(val)
+        return default
+
+    def data_as_enum_list(self, name: str, cls, default=None):
+        if val := self.data(name):
+            if isinstance(val, list):
+                return [cls(item).value for item in val]
+            else:
+                return [cls(val).value]
+        return [default]
+
+    def data_as_or(self, name: str, cls, default=0):
+        if val := self.data(name):
+            if isinstance(val, list):
+                result = 0
+                for item in val:
+                    result |= cls._member_map_.get(item, 0)
+                _LOGGER.debug(f"data_as_or: {result}, {cls._member_map_}, {val}")
+                return result
+            else:
+                return cls._member_map_.get(val, 0)
+        return default

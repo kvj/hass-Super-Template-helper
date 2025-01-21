@@ -22,13 +22,11 @@ class _Entity(BaseEntity, sensor.SensorEntity):
 
     @property
     def device_class(self):
-        if value := self.coordinator.data.get("device_class"):
-            return sensor.const.SensorDeviceClass(value)
-    
+        return self.data_as_enum("device_class", sensor.const.SensorDeviceClass)
+
     @property
     def state_class(self):
-        if value := self.coordinator.data.get("state_class"):
-            return sensor.const.SensorStateClass(value)
+        return self.data_as_enum("state_class", sensor.const.SensorStateClass)
     
     @property
     def suggested_display_precision(self):
