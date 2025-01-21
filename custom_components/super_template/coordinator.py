@@ -144,7 +144,7 @@ class Coordinator(DataUpdateCoordinator):
         result = {SCHEMA_ATTRS: {}}
         entity_ids = set()
         result[SCHEMA_VARIABLES] = self._templatify(config.get(SCHEMA_VARIABLES, {}))
-        ctx = self._extend_context(variables, result[SCHEMA_VARIABLES])
+        ctx = self._extend_context(variables, result[SCHEMA_VARIABLES], suppress_errors=True)
         def _template_to_entity_ids(tmpl: template.Template):
             entity_ids.update(tmpl.async_render_to_info(variables=ctx).entities)
         for key in COMMON_PROPS + DOMAIN_PROPS.get(config.get("type"), ()):
@@ -215,13 +215,19 @@ class Coordinator(DataUpdateCoordinator):
     def load_options(self):
         self._config = self._entry.as_dict()["options"]
 
-    def _extend_context(self, context: dict, variables: dict):
+    def _extend_context(self, context: dict, variables: dict, suppress_errors = False):
         result = { **context }
         self_entities = entity_registry.async_entries_for_config_entry(entity_registry.async_get(self.hass), self._entry_id)
         if len(self_entities):
             result["this"] = self.hass.states.get(self_entities[0].entity_id)
         for key, value in variables.items():
-            value_ = self._apply_templates(value, result)
+            if suppress_errors:
+                try:
+                    value_ = self._apply_templates(value, result)
+                except template.TemplateError:
+                    pass
+            else:
+                value_ = self._apply_templates(value, result)
             _LOGGER.debug(f"_extend_context: variable {key} = {value_}")
             result[key] = value_
         return result
