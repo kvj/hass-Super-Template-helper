@@ -66,9 +66,10 @@ def __entity_selector(hass: HomeAssistant, value, entity_ids: set):
             if val := hass.states.get(item):
                 result.append(val)
         return result
-    entity_ids.add(value)
-    if val := hass.states.get(value):
-        return val
+    if isinstance(value, str):
+        entity_ids.add(value)
+        if val := hass.states.get(value):
+            return val
     return None
 
 def __area_selector(hass: HomeAssistant, value):
@@ -92,27 +93,31 @@ def __config_entry_selector(hass: HomeAssistant, value):
         return None
     return __multiple_maybe(value, cb)
 
+def _convert_argument(hass: HomeAssistant, key: str, value, selector: dict, result: dict, entity_ids: set = set()):
+    if "entity" in selector:
+        result[f"__{key}"] = value
+        value = __entity_selector(hass, value, entity_ids)
+    if "device" in selector:
+        result[f"__{key}"] = value
+        value = __device_selector(hass, value)
+    if "config_entry" in selector:
+        result[f"__{key}"] = value
+        value = __config_entry_selector(hass, value)
+    if "area" in selector:
+        result[f"__{key}"] = value
+        value = __area_selector(hass, value)
+    if "template" in selector and isinstance(value, str):
+        value = template.Template(value, hass).async_render(result)
+    result[key] = value
+    return (result, entity_ids)
+
 def _build_context(hass: HomeAssistant, variables: dict, config: dict):
     result = {}
     entity_ids = set()
     for key, obj in variables.items():
         value = config.get(key)
         selector = obj.get("selector", {})
-        if "entity" in selector:
-            result[f"__{key}"] = value
-            value = __entity_selector(hass, value, entity_ids)
-        if "device" in selector:
-            result[f"__{key}"] = value
-            value = __device_selector(hass, value)
-        if "config_entry" in selector:
-            result[f"__{key}"] = value
-            value = __config_entry_selector(hass, value)
-        if "area" in selector:
-            result[f"__{key}"] = value
-            value = __area_selector(hass, value)
-        if "template" in selector and isinstance(value, str):
-            value = template.Template(value, hass).async_render(result)
-        result[key] = value
+        result, entity_ids = _convert_argument(hass, key, value, selector, result, entity_ids)
     _LOGGER.debug(f"_build_context: {config}, {result}, {entity_ids}")
     return (result, entity_ids)
 
@@ -221,15 +226,18 @@ class Coordinator(DataUpdateCoordinator):
         if len(self_entities):
             result["this"] = self.hass.states.get(self_entities[0].entity_id)
         for key, value in variables.items():
+            value_ = value
             if suppress_errors:
                 try:
                     value_ = self._apply_templates(value, result)
                 except template.TemplateError:
-                    pass
+                    value_ = None
             else:
                 value_ = self._apply_templates(value, result)
-            _LOGGER.debug(f"_extend_context: variable {key} = {value_}")
             result[key] = value_
+            if isinstance(value_, dict) and "selector" in value_:
+                result, _ = _convert_argument(self.hass, key, value_.get("value"), value_.get("selector"), result)
+            _LOGGER.debug(f"_extend_context: variable {key} = {result[key]}, {type(result[key])}")
         return result
 
     async def _async_update_entity(self, config: dict, entity_tmpl: dict, op: str = "other"):
@@ -383,11 +391,11 @@ class BaseEntity(CoordinatorEntity):
     def data_as_or(self, name: str, cls, default=0):
         if val := self.data(name):
             if isinstance(val, list):
-                result = 0
+                result = cls(0)
                 for item in val:
                     result |= cls._member_map_.get(item, 0)
                 _LOGGER.debug(f"data_as_or: {result}, {cls._member_map_}, {val}")
                 return result
             else:
                 return cls._member_map_.get(val, 0)
-        return default
+        return cls(default)
