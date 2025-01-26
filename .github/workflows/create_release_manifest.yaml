@@ -1,0 +1,19 @@
+name: create-release-from-manifest
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "custom_components/super_template/manifest.json"
+jobs:
+  create_tag:
+    name: Create tag from manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get version from manifest
+        run: |
+          export VER=`jq -r ".version" custom_components/super_template/manifest.json`
+      - name: Create new tag
+        run: gh release create $VER --generate-notes  
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
