@@ -10,6 +10,8 @@ jobs:
     name: Create tag from manifest
     runs-on: ubuntu-latest
     steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4  
       - id: get-ver
         name: Get version from manifest
         run: |
