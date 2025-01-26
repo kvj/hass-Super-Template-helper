@@ -95,6 +95,7 @@ def __config_entry_selector(hass: HomeAssistant, value):
     return __multiple_maybe(value, cb)
 
 def _convert_argument(hass: HomeAssistant, key: str, value, selector: dict, result: dict, entity_ids: set = set()):
+    _LOGGER.debug(f"_convert_argument: input: {key}, {value}, {selector}")
     if "entity" in selector:
         result[f"__{key}"] = value
         value = __entity_selector(hass, value, entity_ids)
@@ -108,7 +109,12 @@ def _convert_argument(hass: HomeAssistant, key: str, value, selector: dict, resu
         result[f"__{key}"] = value
         value = __area_selector(hass, value)
     if "template" in selector and isinstance(value, str):
-        value = template.Template(value, hass).async_render(result)
+        tmpl = template.Template(value, hass)
+        try:
+            entity_ids.update(tmpl.async_render_to_info(variables={}).entities)
+        except:
+            _LOGGER.info(f"_convert_argument: failed to render template info: {value}")
+        value = tmpl.async_render(result)
     result[key] = value
     return (result, entity_ids)
 
@@ -291,7 +297,7 @@ class Coordinator(DataUpdateCoordinator):
             _LOGGER.exception(f"async_load: failed to update state at the startup: {self._config}")
             stored_state_ = await self._storage.async_load()
             self._update_state(stored_state_ if stored_state_ else {"available": False})
-        _LOGGER.info(f"async_load: configured with config = {self._config}, initial state = {self.data}, update every = {self.update_interval}")
+        _LOGGER.info(f"async_load: configured with config = {self._config}, initial state = {self.data}, entity ids = {entity_ids}, update every = {self.update_interval}")
         if len(entity_ids):
             self._on_entity_state_handler = event.async_track_state_change_event(
                 self.hass, entity_ids, action=self._async_on_state_change

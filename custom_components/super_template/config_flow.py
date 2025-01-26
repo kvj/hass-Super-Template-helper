@@ -41,16 +41,16 @@ CONFIG_SCHEMA = vol.Schema({
 })
 
 async def _build_config_schema(step: SchemaCommonFlowHandler):
-    _LOGGER.debug(f"_build_user_schema: {step.options}, {step.flow_state}")
     config = await async_get_template(async_get_hass(), step.options[CONF_TEMPLATE])
     variables = await async_get_arguments(async_get_hass(), config)
     schema = {}
     for key, obj in variables.items():
         selector_ = obj.get("selector", {"text": {}})
-        if obj.get("optional"):
+        if obj.get("optional") == True:
             schema[vol.Optional(key, default=obj.get("default"))] = selector(selector_)
         else:
             schema[vol.Required(key, default=obj.get("default"))] = selector(selector_)
+    _LOGGER.debug(f"_build_user_schema: {step.options}, {step.flow_state}, {schema}")
     return vol.Schema(schema)
 
 async def _build_user_schema(step):
