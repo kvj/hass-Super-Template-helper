@@ -5,6 +5,9 @@ on:
       - main
     paths:
       - "custom_components/super_template/manifest.json"
+permissions:
+  contents: write
+  packages: read
 jobs:
   create_tag:
     name: Create tag from manifest
