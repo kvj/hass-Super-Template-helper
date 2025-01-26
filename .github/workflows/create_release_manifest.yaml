@@ -10,10 +10,12 @@ jobs:
     name: Create tag from manifest
     runs-on: ubuntu-latest
     steps:
-      - name: Get version from manifest
+      - id: get-ver
+        name: Get version from manifest
         run: |
-          export VER=`jq -r ".version" custom_components/super_template/manifest.json`
+          VER=`jq -r ".version" custom_components/super_template/manifest.json`
+          echo "VER=$VER" >> $GITHUB_OUTPUT
       - name: Create new tag
-        run: gh release create $VER --generate-notes  
+        run: gh release create ${{ steps.get-ver.outputs.VER }} --generate-notes  
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
