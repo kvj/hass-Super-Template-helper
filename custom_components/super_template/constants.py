@@ -9,7 +9,7 @@ SCHEMA_VARIABLES = "variables"
 SCHEMA_ATTRS = "attrs"
 SCHEMA_UPDATE_INTERVAL = "update_interval"
 
-COMMON_PROPS = ("value", "icon", "device_class", "entity_category", "available", "unit_of_measurement")
+COMMON_PROPS = ("value", "icon", "device_class", "entity_category", "available", "unit_of_measurement", "changed")
 
 DOMAIN_PROPS = {
     "climate": ("current_temperature", "hvac_action", "hvac_modes", "max_temp", "min_temp", "preset_mode", "preset_modes", "target_temperature", "target_temperature_high", "target_temperature_low", "supported_features"), # value == hvac_mode

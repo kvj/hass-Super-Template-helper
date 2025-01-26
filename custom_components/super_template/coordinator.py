@@ -15,6 +15,7 @@ from homeassistant.helpers import (
     area_registry,
     entity_registry,
     script,
+    storage,
 )
 from homeassistant.util import (
     dt,
@@ -144,12 +145,13 @@ class Coordinator(DataUpdateCoordinator):
 
         self._on_entity_state_handler = None
         self._template = None
+        self._storage = storage.Store[dict](hass, 1, DOMAIN)
 
-    def _build_entity_template(self, config: dict, variables: dict):
+    async def async_build_entity_template(self, config: dict, variables: dict):
         result = {SCHEMA_ATTRS: {}}
         entity_ids = set()
         result[SCHEMA_VARIABLES] = self._templatify(config.get(SCHEMA_VARIABLES, {}))
-        ctx = self._extend_context(variables, result[SCHEMA_VARIABLES], suppress_errors=True)
+        ctx = await self.async_extend_context(variables, result[SCHEMA_VARIABLES], suppress_errors=True)
         def _template_to_entity_ids(tmpl: template.Template):
             entity_ids.update(tmpl.async_render_to_info(variables=ctx).entities)
         for key in COMMON_PROPS + DOMAIN_PROPS.get(config.get("type"), ()):
@@ -198,7 +200,8 @@ class Coordinator(DataUpdateCoordinator):
     async def _async_update(self): # Every second or update_interval
         if not self.template_loaded():
             return self.data
-        return await self._async_update_entity(self._template, self._entity_tmpl, op="timer")
+        data_, changed = await self._async_update_entity(self._template, self._entity_tmpl, op="timer")
+        return data_ if changed else self.data
 
     def _update_state(self, data: dict):
         _LOGGER.debug(f"_update_state: new state: {data}")
@@ -207,11 +210,12 @@ class Coordinator(DataUpdateCoordinator):
             **data,
         })
 
-    async def _async_on_state_change(self, entity_id: str, from_state, to_state):
-        _LOGGER.debug(f"_async_on_state_change: {entity_id}")
+    async def _async_on_state_change(self, event):
+        entity_id = event.data["entity_id"]
+        _LOGGER.debug(f"_async_on_state_change: {entity_id}, {event}")
         if self.template_loaded():
-            new_state = await self._async_update_entity(self._template, self._entity_tmpl, op="state")
-            if new_state != self.data:
+            new_state, changed = await self._async_update_entity(self._template, self._entity_tmpl, op="state")
+            if new_state != self.data and changed:
                 self._update_state(new_state)
     
     def state_by_entity_id(self, entity_id: str | None):
@@ -220,11 +224,15 @@ class Coordinator(DataUpdateCoordinator):
     def load_options(self):
         self._config = self._entry.as_dict()["options"]
 
-    def _extend_context(self, context: dict, variables: dict, suppress_errors = False):
+    async def async_extend_context(self, context: dict, variables: dict, suppress_errors = False):
         result = { **context }
         self_entities = entity_registry.async_entries_for_config_entry(entity_registry.async_get(self.hass), self._entry_id)
         if len(self_entities):
             result["this"] = self.hass.states.get(self_entities[0].entity_id)
+            
+        if stored_state_ := await self._storage.async_load():
+            result["previous_state"] = stored_state_
+
         for key, value in variables.items():
             value_ = value
             if suppress_errors:
@@ -237,13 +245,16 @@ class Coordinator(DataUpdateCoordinator):
             result[key] = value_
             if isinstance(value_, dict) and "selector" in value_:
                 result, _ = _convert_argument(self.hass, key, value_.get("value"), value_.get("selector"), result)
-            _LOGGER.debug(f"_extend_context: variable {key} = {result[key]}, {type(result[key])}")
+            _LOGGER.debug(f"async_extend_context: variable {key} = {result[key]}, {type(result[key])}")
         return result
 
     async def _async_update_entity(self, config: dict, entity_tmpl: dict, op: str = "other"):
         ctx, _ = _build_context(self.hass, await async_get_arguments(self.hass, config), self._config)
-        ctx = self._extend_context(ctx, entity_tmpl.get(SCHEMA_VARIABLES, {}))
-
+        ctx = await self.async_extend_context(ctx, entity_tmpl.get(SCHEMA_VARIABLES, {}))
+        if "changed" in entity_tmpl:
+            is_changed = self._apply_templates(entity_tmpl["changed"], ctx)
+            if is_changed == False:
+                return None, False
         result = {}
         for key, value in entity_tmpl.items():
             if key in (SCHEMA_VARIABLES, SCHEMA_ATTRS) or key.startswith("on_"):
@@ -254,7 +265,8 @@ class Coordinator(DataUpdateCoordinator):
             result["available"] = True
         if "on_update" in entity_tmpl:
             await self.async_execute_action("on_update", {"op": op})
-        return result
+        await self._storage.async_save(result)
+        return result, True
     
     async def async_load(self):
         self.load_options()
@@ -262,7 +274,7 @@ class Coordinator(DataUpdateCoordinator):
         self._template_name = self._config[CONF_TEMPLATE]
         self._template = await async_get_template(self.hass, self._template_name)
         ctx, var_entity_ids = _build_context(self.hass, await async_get_arguments(self.hass, self._template), self._config)
-        entity_tmpl, entity_ids = self._build_entity_template(self._template, ctx)
+        entity_tmpl, entity_ids = await self.async_build_entity_template(self._template, ctx)
         _LOGGER.debug(f"async_load: entity IDs: {entity_ids}, {var_entity_ids}")
         entity_ids.update(var_entity_ids)
         self._entity_tmpl = entity_tmpl
@@ -272,13 +284,16 @@ class Coordinator(DataUpdateCoordinator):
             if td:
                 self.update_interval = td
         try:
-            self._update_state(await self._async_update_entity(self._template, self._entity_tmpl, op="startup"))
+            data_, changed = await self._async_update_entity(self._template, self._entity_tmpl, op="startup")
+            if changed:
+                self._update_state(data_)
         except:
             _LOGGER.exception(f"async_load: failed to update state at the startup: {self._config}")
-            self._update_state({"available": False})
+            stored_state_ = await self._storage.async_load()
+            self._update_state(stored_state_ if stored_state_ else {"available": False})
         _LOGGER.info(f"async_load: configured with config = {self._config}, initial state = {self.data}, update every = {self.update_interval}")
         if len(entity_ids):
-            self._on_entity_state_handler = event.async_track_state_change(
+            self._on_entity_state_handler = event.async_track_state_change_event(
                 self.hass, entity_ids, action=self._async_on_state_change
             )
 
@@ -313,7 +328,7 @@ class Coordinator(DataUpdateCoordinator):
                 **extra,
                 **ctx,
             }
-        ctx = self._extend_context(ctx, self._entity_tmpl.get(SCHEMA_VARIABLES, {}))
+        ctx = await self.async_extend_context(ctx, self._entity_tmpl.get(SCHEMA_VARIABLES, {}))
         context = Context()
         actions = self._apply_templates(actions, ctx)
         script_ = script.Script(self.hass, actions, f"_st_{self._entry_id}_{name}", DOMAIN, top_level=False)
