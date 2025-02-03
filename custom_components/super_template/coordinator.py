@@ -16,6 +16,7 @@ from homeassistant.helpers import (
     entity_registry,
     script,
     storage,
+    config_validation,
 )
 from homeassistant.util import (
     dt,
@@ -151,7 +152,7 @@ class Coordinator(DataUpdateCoordinator):
 
         self._on_entity_state_handler = None
         self._template = None
-        self._storage = storage.Store[dict](hass, 1, DOMAIN)
+        self._storage = storage.Store[dict](hass, 1, f"{DOMAIN}.{self._entry_id}")
 
     async def async_build_entity_template(self, config: dict, variables: dict):
         result = {SCHEMA_ATTRS: {}}
@@ -237,7 +238,9 @@ class Coordinator(DataUpdateCoordinator):
             result["this"] = self.hass.states.get(self_entities[0].entity_id)
             
         if stored_state_ := await self._storage.async_load():
-            result["previous_state"] = stored_state_
+            result["_state"] = stored_state_
+        else:
+            result["_state"] = {}
 
         for key, value in variables.items():
             value_ = value
@@ -271,7 +274,6 @@ class Coordinator(DataUpdateCoordinator):
             result["available"] = True
         if "on_update" in entity_tmpl:
             await self.async_execute_action("on_update", {"op": op})
-        await self._storage.async_save(result)
         return result, True
     
     async def async_load(self):
@@ -295,8 +297,7 @@ class Coordinator(DataUpdateCoordinator):
                 self._update_state(data_)
         except:
             _LOGGER.exception(f"async_load: failed to update state at the startup: {self._config}")
-            stored_state_ = await self._storage.async_load()
-            self._update_state(stored_state_ if stored_state_ else {"available": False})
+            self._update_state({"available": False})
         _LOGGER.info(f"async_load: configured with config = {self._config}, initial state = {self.data}, entity ids = {entity_ids}, update every = {self.update_interval}")
         if len(entity_ids):
             self._on_entity_state_handler = event.async_track_state_change_event(
@@ -336,11 +337,16 @@ class Coordinator(DataUpdateCoordinator):
             }
         ctx = await self.async_extend_context(ctx, self._entity_tmpl.get(SCHEMA_VARIABLES, {}))
         context = Context()
-        actions = self._apply_templates(actions, ctx)
-        script_ = script.Script(self.hass, actions, f"_st_{self._entry_id}_{name}", DOMAIN, top_level=False)
-        _LOGGER.debug(f"async_execute_action: {name} with {ctx} and {extra}")
+        actions = config_validation.SCRIPT_SCHEMA(self._apply_templates(actions, ctx))
+        script_ = script.Script(self.hass, actions, f"_st_{self._entry_id}_{name}", DOMAIN, top_level=True)
+        _LOGGER.debug(f"async_execute_action: {name} with {ctx} and {extra} and actions {actions}")
         result = await script_.async_run(context=context)
-        _LOGGER.debug(f"async_execute_action: result: {result}")
+        _LOGGER.debug(f"async_execute_action: result: {name} = {result}")
+        if result and isinstance(result.service_response, dict):
+            _LOGGER.debug(f"async_execute_action: storing state: {result.service_response}")
+            await self._storage.async_save(result.service_response)
+            return result.service_response
+        return None
 
     def template_loaded(self) -> bool:
         if self._template and "type" in self._template:
