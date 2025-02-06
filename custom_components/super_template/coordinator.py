@@ -17,6 +17,7 @@ from homeassistant.helpers import (
     script,
     storage,
     config_validation,
+    trigger,
 )
 from homeassistant.util import (
     dt,
@@ -119,12 +120,13 @@ def _convert_argument(hass: HomeAssistant, key: str, value, selector: dict, resu
     result[key] = value
     return (result, entity_ids)
 
+def _extract_arguments(variables: dict, config: dict):
+    return [(key, config.get(key), obj.get("selector", {})) for key, obj in variables.items()]
+
 def _build_context(hass: HomeAssistant, variables: dict, config: dict):
     result = {}
     entity_ids = set()
-    for key, obj in variables.items():
-        value = config.get(key)
-        selector = obj.get("selector", {})
+    for key, value, selector in _extract_arguments(variables, config):
         result, entity_ids = _convert_argument(hass, key, value, selector, result, entity_ids)
     _LOGGER.debug(f"_build_context: {config}, {result}, {entity_ids}")
     return (result, entity_ids)
@@ -151,6 +153,7 @@ class Coordinator(DataUpdateCoordinator):
         self._entry_id = entry.entry_id
 
         self._on_entity_state_handler = None
+        self._trigger_handlers = []
         self._template = None
         self._storage = storage.Store[dict](hass, 1, f"{DOMAIN}.{self._entry_id}")
 
@@ -176,6 +179,8 @@ class Coordinator(DataUpdateCoordinator):
                 result[SCHEMA_ATTRS][key] = value
         for key, obj in config.items():
             if key.startswith("on_") and obj:
+                result[key] = self._templatify(obj)
+            if key.startswith("when_") and obj:
                 result[key] = self._templatify(obj)
         return (result, entity_ids)
     
@@ -277,20 +282,35 @@ class Coordinator(DataUpdateCoordinator):
             await self.async_execute_action("on_update", {"op": op})
         return result, True
     
+    async def _async_create_trigger(self, name: str, config, ctx: dict):
+        trigger_conf = self._apply_templates(config, ctx)
+        trigger_ = config_validation.TRIGGER_SCHEMA(trigger_conf)
+        _LOGGER.debug(f"_async_create_trigger: {name} / {trigger_conf} / {trigger_}")
+        async def on_trigger_(trigger_vars, trigger_ctx):
+            _LOGGER.debug(f"_async_create_trigger::on_trigger_: {name} / {trigger_} with {trigger_vars} and {trigger_ctx}")
+            if self.template_loaded():
+                new_state, changed = await self._async_update_entity(self._template, self._entity_tmpl, op=name)
+                if new_state != self.data and changed:
+                    self._update_state(new_state)
+        remove_cb = await trigger.async_initialize_triggers(
+            self.hass, trigger_, on_trigger_, domain=DOMAIN, name=name, log_cb=_LOGGER.log,
+        )
+        return remove_cb
+    
     async def async_load(self):
         self.load_options()
         _LOGGER.debug(f"async_load: {self._config}")
         self._template_name = self._config[CONF_TEMPLATE]
         self._template = await async_get_template(self.hass, self._template_name)
-        ctx, var_entity_ids = _build_context(self.hass, await async_get_arguments(self.hass, self._template), self._config)
+        arguments = await async_get_arguments(self.hass, self._template)
+        ctx, var_entity_ids = _build_context(self.hass, arguments, self._config)
         entity_tmpl, entity_ids = await self.async_build_entity_template(self._template, ctx)
         _LOGGER.debug(f"async_load: entity IDs: {entity_ids}, {var_entity_ids}")
         entity_ids.update(var_entity_ids)
         self._entity_tmpl = entity_tmpl
 
         if SCHEMA_UPDATE_INTERVAL in self._template:
-            td = dt.parse_duration(self._template[SCHEMA_UPDATE_INTERVAL])
-            if td:
+            if td := dt.parse_duration(self._template[SCHEMA_UPDATE_INTERVAL]):
                 self.update_interval = td
         try:
             data_, changed = await self._async_update_entity(self._template, self._entity_tmpl, op="startup")
@@ -304,6 +324,12 @@ class Coordinator(DataUpdateCoordinator):
             self._on_entity_state_handler = event.async_track_state_change_event(
                 self.hass, entity_ids, action=self._async_on_state_change
             )
+        for key, value in entity_tmpl.items():
+            if key.startswith("when_") and value:
+                self._trigger_handlers.append(await self._async_create_trigger(key, value, ctx))
+        for key, value, selector in _extract_arguments(arguments, self._config):
+            if "trigger" in selector and value:
+                self._trigger_handlers.append(await self._async_create_trigger(key, value, ctx))
 
     def _disable_listener(self, listener):
         if listener:
@@ -314,6 +340,8 @@ class Coordinator(DataUpdateCoordinator):
         _LOGGER.debug(f"async_unload:")
         self._on_entity_state_handler = self._disable_listener(self._on_entity_state_handler)
         self._template = None
+        [self._disable_listener(cb) for cb in self._trigger_handlers]
+        self._trigger_handlers = []
 
     def forward_setup(self, domain: str, entity_cls):
         if self.template_loaded() and self._template.get("type") == domain:
