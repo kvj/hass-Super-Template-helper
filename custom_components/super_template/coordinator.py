@@ -235,7 +235,8 @@ class Coordinator(DataUpdateCoordinator):
         result = { **context }
         self_entities = entity_registry.async_entries_for_config_entry(entity_registry.async_get(self.hass), self._entry_id)
         if len(self_entities):
-            result["this"] = self.hass.states.get(self_entities[0].entity_id)
+            result["_entity_id"] = self_entities[0].entity_id
+            result["_this"] = self.hass.states.get(self_entities[0].entity_id)
             
         if stored_state_ := await self._storage.async_load():
             result["_state"] = stored_state_
@@ -319,16 +320,7 @@ class Coordinator(DataUpdateCoordinator):
             return [entity_cls(self)]
         return []
     
-    async def async_execute_action(self, name: str, extra: dict = None):
-        if not self.template_loaded():
-            return
-        if name not in self._template:
-            _LOGGER.warning(f"async_execute_action: not configured action: {name}, with extra {extra}")
-            return
-        actions = self._entity_tmpl[name]
-        if not isinstance(actions, list):
-            actions = [actions]
-
+    async def _async_execute_actions(self, name: str, extra: dict, actions):
         ctx, _ = _build_context(self.hass, await async_get_arguments(self.hass, self._template), self._config)
         if extra:
             ctx = {
@@ -337,15 +329,39 @@ class Coordinator(DataUpdateCoordinator):
             }
         ctx = await self.async_extend_context(ctx, self._entity_tmpl.get(SCHEMA_VARIABLES, {}))
         context = Context()
-        actions = config_validation.SCRIPT_SCHEMA(self._apply_templates(actions, ctx))
-        script_ = script.Script(self.hass, actions, f"_st_{self._entry_id}_{name}", DOMAIN, top_level=True)
-        _LOGGER.debug(f"async_execute_action: {name} with {ctx} and {extra} and actions {actions}")
+        actions_ = config_validation.SCRIPT_SCHEMA(self._apply_templates(actions, ctx))
+        script_ = script.Script(self.hass, actions_, f"_st_{self._entry_id}_{name}", DOMAIN, top_level=True)
+        _LOGGER.debug(f"_async_execute_actions: {name} with {ctx} and {extra} and actions {actions_}")
         result = await script_.async_run(context=context)
-        _LOGGER.debug(f"async_execute_action: result: {name} = {result}")
+        _LOGGER.debug(f"_async_execute_actions: result: {name} = {result}")
         if result and isinstance(result.service_response, dict):
-            _LOGGER.debug(f"async_execute_action: storing state: {result.service_response}")
-            await self._storage.async_save(result.service_response)
+            _LOGGER.debug(f"_async_execute_actions: storing state: {result.service_response}")
             return result.service_response
+        return None
+    
+    async def async_execute_action(self, name: str, extra: dict = {}):
+        if not self.template_loaded():
+            return
+        if name not in self._template:
+            _LOGGER.warning(f"async_execute_action: not configured action: {name}, with extra {extra}")
+            return
+        actions = self._entity_tmpl[name]
+        result = await self._async_execute_actions(name, extra, actions)
+        if result and isinstance(result, dict):
+            _LOGGER.debug(f"async_execute_action: storing state: {result}")
+            await self._storage.async_save(result)
+        return result
+    
+    async def async_call_argument_action(self, name: str, extra: dict):
+        if not self.template_loaded():
+            return
+        arguments = await async_get_arguments(self.hass, self._template)
+        ctx, _ = _build_context(self.hass, arguments, self._config)
+        actions = ctx.get(name)
+        _LOGGER.debug(f"async_call_argument_action: {name} = {actions}")
+        if actions:
+            return await self._async_execute_actions(name, extra, actions)
+        _LOGGER.debug(f"async_call_argument_action: {name} is empty")
         return None
 
     def template_loaded(self) -> bool:

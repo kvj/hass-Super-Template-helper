@@ -1,2 +1,23 @@
 reload:
   name: Reloads Super Template YAML configurations 
+call_argument_action:
+  name: Call an action behind the argument
+  target:
+    device:
+      integration: super_template
+    entity:
+      integration: super_template
+  fields:
+    argument:
+      name: Argument ID
+      description: Argument ID which is configured as `action` selector
+      required: true
+      example: "on_action"
+      selector:
+        text: {}
+    extra:
+      name: Variables passed to the calll
+      description: Arbitrary variables passed to the call
+      required: false
+      selector:
+        object: {}

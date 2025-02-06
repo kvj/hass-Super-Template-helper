@@ -3,7 +3,7 @@ from .constants import *
 
 from .coordinator import Coordinator
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.loader import async_get_integration
 from homeassistant.helpers.typing import ConfigType
@@ -76,6 +76,16 @@ async def _async_reload_entries(hass: HomeAssistant):
             await coordinator.async_unload()
             await coordinator.async_load()
 
+def _register_coordinator_service(hass: HomeAssistant,  name: str, handler, resp: SupportsResponse = SupportsResponse.NONE):
+    async def handler_(call):
+        for entry_id in await service.async_extract_config_entry_ids(hass, call):
+            if entry := hass.config_entries.async_get_entry(entry_id):
+                _LOGGER.debug(f"_register_coordinator_service: {name}: {entry.domain}")
+                if entry.domain == DOMAIN:
+                    await handler(entry.runtime_data, call.data)
+    hass.services.async_register(DOMAIN, name, handler_, supports_response=resp)
+    
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     cmp = await async_get_integration(hass, DOMAIN)
     ver = cmp.manifest["version"]
@@ -90,5 +100,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         hass.data[DOMAIN] = conf
         await _async_reload_entries(hass)
     service.async_register_admin_service(hass, DOMAIN, SERVICE_RELOAD, _async_reload_yaml)
-
+    async def _call_argument_action(c: Coordinator, data: dict):
+        return await c.async_call_argument_action(data["argument"], data.get("extra", {}))
+    _register_coordinator_service(hass, "call_argument_action", _call_argument_action, resp=SupportsResponse.OPTIONAL)
     return True
