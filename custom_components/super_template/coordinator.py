@@ -111,6 +111,7 @@ def _convert_argument(hass: HomeAssistant, key: str, value, selector: dict, resu
         result[f"__{key}"] = value
         value = __area_selector(hass, value)
     if "template" in selector and isinstance(value, str):
+        result[f"__{key}"] = value
         tmpl = template.Template(value, hass)
         try:
             entity_ids.update(tmpl.async_render_to_info(variables={}).entities)
@@ -264,6 +265,8 @@ class Coordinator(DataUpdateCoordinator):
         return result
 
     async def _async_update_entity(self, config: dict, entity_tmpl: dict, op: str = "other"):
+        if "on_before_update" in entity_tmpl:
+            await self.async_execute_action("on_before_update", {"op": op})
         ctx, _ = _build_context(self.hass, await async_get_arguments(self.hass, config), self._config)
         ctx = await self.async_extend_context(ctx, entity_tmpl.get(SCHEMA_VARIABLES, {}))
         if "changed" in entity_tmpl:
@@ -280,6 +283,7 @@ class Coordinator(DataUpdateCoordinator):
             result["available"] = True
         if "on_update" in entity_tmpl:
             await self.async_execute_action("on_update", {"op": op})
+        _LOGGER.debug(f"_async_update_entity: {config}[{op}] with {ctx} = {result}")
         return result, True
     
     async def _async_create_trigger(self, name: str, config, ctx: dict):
