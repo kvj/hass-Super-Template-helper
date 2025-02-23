@@ -57,7 +57,7 @@ def __multiple_maybe(value, callback):
         for item in value:
             if val := callback(item):
                 result.append(val)
-    if val := callback(value):
+    elif val := callback(value):
         return val
     return None
 
