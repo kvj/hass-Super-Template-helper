@@ -16,7 +16,28 @@ call_argument_action:
       selector:
         text: {}
     extra:
-      name: Variables passed to the calll
+      name: Variables passed to the call
+      description: Arbitrary variables passed to the call
+      required: false
+      selector:
+        object: {}
+call_action:
+  name: Call an arbitrary action
+  target:
+    device:
+      integration: super_template
+    entity:
+      integration: super_template
+  fields:
+    action:
+      name: Action name
+      description: Action name without the `on_` prefix
+      required: true
+      example: "custom_action"
+      selector:
+        text: {}
+    extra:
+      name: Variables passed to the call
       description: Arbitrary variables passed to the call
       required: false
       selector:
