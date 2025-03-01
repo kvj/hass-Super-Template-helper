@@ -128,7 +128,10 @@ def _build_context(hass: HomeAssistant, variables: dict, config: dict):
     result = {}
     entity_ids = set()
     for key, value, selector, is_static in _extract_arguments(variables, config):
-        result, entity_ids = _convert_argument(hass, key, value, selector, result, set() if is_static else entity_ids)
+        if is_static:
+            result, _ = _convert_argument(hass, key, value, selector, result, set())
+        else:
+            result, entity_ids = _convert_argument(hass, key, value, selector, result, entity_ids)
     _LOGGER.debug(f"_build_context: {config}, {result}, {entity_ids}")
     return (result, entity_ids)
 
