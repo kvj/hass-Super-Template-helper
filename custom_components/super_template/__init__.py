@@ -22,6 +22,7 @@ _COMPLEX_VALUE = vol.Any(str, bool, int, float, dict, list)
 
 _ARG_SCHEMA = vol.Schema({
     vol.Optional("optional"): bool,
+    vol.Optional("static"): bool,
     vol.Optional("selector"): vol.Schema({}, extra=vol.ALLOW_EXTRA),
     vol.Optional("description"): str,
     vol.Optional("default"): _SIMPLE_VALUE

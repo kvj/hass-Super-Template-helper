@@ -122,13 +122,13 @@ def _convert_argument(hass: HomeAssistant, key: str, value, selector: dict, resu
     return (result, entity_ids)
 
 def _extract_arguments(variables: dict, config: dict):
-    return [(key, config.get(key), obj.get("selector", {})) for key, obj in variables.items()]
+    return [(key, config.get(key), obj.get("selector", {}), obj.get("static") == True) for key, obj in variables.items()]
 
 def _build_context(hass: HomeAssistant, variables: dict, config: dict):
     result = {}
     entity_ids = set()
-    for key, value, selector in _extract_arguments(variables, config):
-        result, entity_ids = _convert_argument(hass, key, value, selector, result, entity_ids)
+    for key, value, selector, is_static in _extract_arguments(variables, config):
+        result, entity_ids = _convert_argument(hass, key, value, selector, result, set() if is_static else entity_ids)
     _LOGGER.debug(f"_build_context: {config}, {result}, {entity_ids}")
     return (result, entity_ids)
 
@@ -331,7 +331,7 @@ class Coordinator(DataUpdateCoordinator):
         for key, value in entity_tmpl.items():
             if key.startswith("when_") and value:
                 self._trigger_handlers.append(await self._async_create_trigger(key, value, ctx))
-        for key, value, selector in _extract_arguments(arguments, self._config):
+        for key, value, selector, _ in _extract_arguments(arguments, self._config):
             if "trigger" in selector and value:
                 self._trigger_handlers.append(await self._async_create_trigger(key, value, ctx))
 
