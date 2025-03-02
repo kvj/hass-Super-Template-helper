@@ -183,7 +183,7 @@ class Coordinator(DataUpdateCoordinator):
                 result[SCHEMA_ATTRS][key] = value
         for key, obj in config.items():
             if key.startswith("on_") and obj:
-                result[key] = self._templatify(obj)
+                result[key] = obj
             if key.startswith("when_") and obj:
                 result[key] = self._templatify(obj)
         return (result, entity_ids)
@@ -316,9 +316,11 @@ class Coordinator(DataUpdateCoordinator):
         entity_ids.update(var_entity_ids)
         self._entity_tmpl = entity_tmpl
 
+        update_every_ = timedelta(minutes=1)
         if SCHEMA_UPDATE_INTERVAL in self._template:
             if td := dt.parse_duration(self._template[SCHEMA_UPDATE_INTERVAL]):
-                self.update_interval = td
+                update_every_ = td
+        self.update_interval = update_every_
         try:
             data_, changed = await self._async_update_entity(self._template, self._entity_tmpl, op="startup")
             if changed:
@@ -367,7 +369,7 @@ class Coordinator(DataUpdateCoordinator):
         actions_ = config_validation.SCRIPT_SCHEMA(self._apply_templates(actions, ctx))
         script_ = script.Script(self.hass, actions_, f"_st_{self._entry_id}_{name}", DOMAIN, top_level=True)
         _LOGGER.debug(f"_async_execute_actions: {name} with {ctx} and {extra} and actions {actions_}")
-        result = await script_.async_run(context=context)
+        result = await script_.async_run(context=context, run_variables=ctx)
         _LOGGER.debug(f"_async_execute_actions: result: {name} = {result}")
         if result and isinstance(result.service_response, dict):
             _LOGGER.debug(f"_async_execute_actions: storing state: {result.service_response}")
