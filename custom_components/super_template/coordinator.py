@@ -299,6 +299,10 @@ class Coordinator(DataUpdateCoordinator):
                 new_state, changed = await self._async_update_entity(self._template, self._entity_tmpl, op=name)
                 if new_state != self.data and changed:
                     self._update_state(new_state)
+                handler_name = f"on_{name}_trigger"
+                if handler_name in self._entity_tmpl:
+                    _LOGGER.debug(f"_async_create_trigger::on_trigger_ call handler {handler_name} with {trigger_vars}")
+                    await self.async_execute_action(handler_name, trigger_vars)
         remove_cb = await trigger.async_initialize_triggers(
             self.hass, trigger_, on_trigger_, domain=DOMAIN, name=name, log_cb=_LOGGER.log,
         )
