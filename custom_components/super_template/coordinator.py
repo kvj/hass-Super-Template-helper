@@ -85,7 +85,10 @@ def __area_selector(hass: HomeAssistant, value):
 def __device_selector(hass: HomeAssistant, value):
     def cb(value):
         if val := device_registry.async_get(hass).async_get(value):
-            return val.dict_repr
+            return {
+                "device_name": val.name_by_user if val.name_by_user else val.name,
+                **val.dict_repr, 
+            }
         return None
     return __multiple_maybe(value, cb)
 
@@ -183,7 +186,11 @@ class Coordinator(DataUpdateCoordinator):
                 result[SCHEMA_ATTRS][key] = value
         for key, obj in config.items():
             if key.startswith("on_") and obj:
-                result[key] = obj
+                if "actions" in obj and "template" in obj:
+                    actions = obj["actions"]
+                    result[key] = self._templatify(actions) if obj["template"] else actions
+                else:
+                    result[key] = obj
             if key.startswith("when_") and obj:
                 result[key] = self._templatify(obj)
         return (result, entity_ids)
@@ -399,7 +406,7 @@ class Coordinator(DataUpdateCoordinator):
         arguments = await async_get_arguments(self.hass, self._template)
         ctx, _ = _build_context(self.hass, arguments, self._config)
         actions = ctx.get(name)
-        _LOGGER.debug(f"async_call_argument_action: {name} = {actions}")
+        _LOGGER.debug(f"async_call_argument_action: {name} = {actions}, {extra}")
         if actions:
             return await self._async_execute_actions(name, extra, actions)
         _LOGGER.debug(f"async_call_argument_action: {name} is empty")
