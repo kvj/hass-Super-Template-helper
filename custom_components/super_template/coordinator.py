@@ -399,6 +399,10 @@ class Coordinator(DataUpdateCoordinator):
         if result and isinstance(result, dict):
             _LOGGER.debug(f"async_execute_action: storing state: {result}")
             await self._storage.async_save(result)
+            if self._template.get("optimistic") == False:
+                new_state, changed = await self._async_update_entity(self._template, self._entity_tmpl, op="after_state")
+                if new_state != self.data and changed:
+                    self._update_state(new_state)
         return result
     
     async def async_call_argument_action(self, name: str, extra: dict):

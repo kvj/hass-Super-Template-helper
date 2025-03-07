@@ -31,6 +31,7 @@ _ARG_SCHEMA = vol.Schema({
 _TMPL_SCHEMA = vol.Schema({
     vol.Required("type"): vol.Any(*PLATFORMS),
     vol.Optional("title"): str,
+    vol.Optional("optimistic", default=True): bool,
     vol.Required("name"): str,
     vol.Optional("icon"): str,
     vol.Optional("value"): str,
