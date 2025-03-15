@@ -164,6 +164,7 @@ class Coordinator(DataUpdateCoordinator):
         self._trigger_handlers = []
         self._template = None
         self._storage = storage.Store[dict](hass, 1, f"{DOMAIN}.{self._entry_id}")
+        self._event_listeners = []
 
     async def async_build_entity_template(self, config: dict, variables: dict):
         result = {SCHEMA_ATTRS: {}}
@@ -189,19 +190,22 @@ class Coordinator(DataUpdateCoordinator):
             if key.startswith("on_") and obj:
                 if "actions" in obj and "template" in obj:
                     actions = obj["actions"]
-                    result[key] = self._templatify(actions) if obj["template"] else actions
+                    result[key] = self._templatify(actions, skip_variables=True) if obj["template"] != False else actions
                 else:
-                    result[key] = obj
+                    result[key] = self._templatify(obj, skip_variables=True)
             if key.startswith("when_") and obj:
                 result[key] = self._templatify(obj)
         return (result, entity_ids)
     
-    def _templatify(self, obj):
+    def _templatify(self, obj, skip_variables: bool = False):
         def _one_object(obj):
             if isinstance(obj, list):
                 return [_one_object(item) for item in obj]
             if isinstance(obj, dict):
-                return {key: _one_object(item) for key, item in obj.items()}
+                return {
+                    key: item if key == "variables" and skip_variables else _one_object(item) \
+                        for key, item in obj.items()
+                }
             if isinstance(obj, str):
                 return template.Template(obj.strip(), self.hass)
             return obj
@@ -363,6 +367,7 @@ class Coordinator(DataUpdateCoordinator):
         self._template = None
         [self._disable_listener(cb) for cb in self._trigger_handlers]
         self._trigger_handlers = []
+        self._event_listeners = []
 
     def forward_setup(self, domain: str, entity_cls):
         if self.template_loaded() and self._template.get("type") == domain:
@@ -417,10 +422,25 @@ class Coordinator(DataUpdateCoordinator):
         _LOGGER.debug(f"async_call_argument_action: {name} is empty")
         return None
 
+    async def async_fire_event(self, name: str, extra: dict):
+        if not self.template_loaded():
+            return None
+        _LOGGER.debug(f"async_fire_event: {name} with {extra}")
+        for l in self._event_listeners:
+            await l.async_on_event(name, extra)
+        return None
+
     def template_loaded(self) -> bool:
         if self._template and "type" in self._template:
             return True
         return False
+
+    def add_event_listener(self, listener):
+        self._event_listeners.append(listener)
+
+    def remove_event_listener(self, listener):
+        if listener in self._event_listeners:
+            self._event_listeners.remove(listener)
 
 class BaseEntity(CoordinatorEntity):
 
@@ -495,3 +515,6 @@ class BaseEntity(CoordinatorEntity):
             else:
                 return cls._member_map_.get(val, 0)
         return cls(default)
+    
+    async def async_on_event(self, name: str, data: dict):
+        pass
