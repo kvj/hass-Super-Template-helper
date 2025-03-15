@@ -1,5 +1,5 @@
 DOMAIN = "super_template"
-PLATFORMS = ["sensor", "binary_sensor", "switch", "button", "climate", "cover", "device_tracker", "light", "lock", "notify", "number", "scene", "select", "siren", "text", "valve", "vacuum", "water_heater"]
+PLATFORMS = ["sensor", "binary_sensor", "switch", "button", "climate", "cover", "device_tracker", "light", "lock", "notify", "number", "scene", "select", "siren", "text", "valve", "vacuum", "water_heater", "event"]
 
 CONF_TEMPLATE = "__template"
 CONF_NAME = "__name"
@@ -26,4 +26,5 @@ DOMAIN_PROPS = {
     "valve": ("is_closed", "is_closing", "is_opening", "reports_position", "supported_features"), # current_valve_position == value
     "vacuum": ("battery_icon", "battery_level", "fan_speed", "fan_speed_list", "supported_features"), # state == value
     "water_heater": ("min_temp", "max_temp", "target_temperature", "target_temperature_high", "target_temperature_low", "current_temperature", "operation_list", "is_away_mode_on", "precision", "supported_features"), # current_operation == value
+    "event": ("types",),
 }

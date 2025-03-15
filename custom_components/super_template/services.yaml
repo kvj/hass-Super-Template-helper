@@ -42,3 +42,24 @@ call_action:
       required: false
       selector:
         object: {}
+fire_event:
+  name: Fire an event
+  target:
+    device:
+      integration: super_template
+    entity:
+      integration: super_template
+  fields:
+    name:
+      name: Event name
+      description: Event name
+      required: true
+      example: "custom_event"
+      selector:
+        text: {}
+    extra:
+      name: Data attached to the event
+      description: Arbitrary data attached to the event
+      required: false
+      selector:
+        object: {}

@@ -108,4 +108,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def _call_action(c: Coordinator, data: dict):
         return await c.async_execute_action(f"on_{data["action"]}", data.get("extra", {}))
     _register_coordinator_service(hass, "call_action", _call_action, resp=SupportsResponse.OPTIONAL)
+    async def _fire_event(c: Coordinator, data: dict):
+        return await c.async_fire_event(data["name"], data.get("extra", {}))
+    _register_coordinator_service(hass, "fire_event", _fire_event, resp=SupportsResponse.OPTIONAL)
     return True
