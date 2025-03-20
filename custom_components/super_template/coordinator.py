@@ -190,24 +190,26 @@ class Coordinator(DataUpdateCoordinator):
             if key.startswith("on_") and obj:
                 if "actions" in obj and "template" in obj:
                     actions = obj["actions"]
-                    result[key] = self._templatify(actions, skip_variables=True) if obj["template"] != False else actions
+                    result[key] = self._templatify(actions) if obj["template"] != False else actions
                 else:
-                    result[key] = self._templatify(obj, skip_variables=True)
+                    result[key] = self._templatify(obj)
             if key.startswith("when_") and obj:
                 result[key] = self._templatify(obj)
         return (result, entity_ids)
     
-    def _templatify(self, obj, skip_variables: bool = False):
+    def _templatify(self, obj):
         def _one_object(obj):
             if isinstance(obj, list):
                 return [_one_object(item) for item in obj]
             if isinstance(obj, dict):
                 return {
-                    key: item if key == "variables" and skip_variables else _one_object(item) \
-                        for key, item in obj.items()
+                    key: _one_object(item) for key, item in obj.items()
                 }
             if isinstance(obj, str):
-                return template.Template(obj.strip(), self.hass)
+                sobj = obj.strip()
+                if sobj.startswith(r"{{{") and sobj.endswith(r"}}}"):
+                    return sobj[1:-1]
+                return template.Template(sobj, self.hass)
             return obj
         return _one_object(obj)
     
