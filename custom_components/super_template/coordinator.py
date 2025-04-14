@@ -62,12 +62,15 @@ def __multiple_maybe(value, callback):
         return val
     return None
 
-def __entity_selector(hass: HomeAssistant, value, entity_ids: set):
+def __entity_selector(hass: HomeAssistant, value, only_defined: bool, entity_ids: set):
     if isinstance(value, list):
         result = []
         for item in value:
             entity_ids.add(item)
-            if val := hass.states.get(item):
+            val = hass.states.get(item)
+            if val and val.state in ('unknown', 'undefined') and only_defined:
+                continue
+            if val:
                 result.append(val)
         return result
     if isinstance(value, str):
@@ -100,11 +103,11 @@ def __config_entry_selector(hass: HomeAssistant, value):
         return None
     return __multiple_maybe(value, cb)
 
-def _convert_argument(hass: HomeAssistant, key: str, value, selector: dict, result: dict, entity_ids: set = set()):
+def _convert_argument(hass: HomeAssistant, key: str, value, selector: dict, only_defined: bool, result: dict, entity_ids: set = set()):
     _LOGGER.debug(f"_convert_argument: input: {key}, {value}, {selector}")
     if "entity" in selector:
         result[f"__{key}"] = value
-        value = __entity_selector(hass, value, entity_ids)
+        value = __entity_selector(hass, value, only_defined, entity_ids)
     if "device" in selector:
         result[f"__{key}"] = value
         value = __device_selector(hass, value)
@@ -126,16 +129,16 @@ def _convert_argument(hass: HomeAssistant, key: str, value, selector: dict, resu
     return (result, entity_ids)
 
 def _extract_arguments(variables: dict, config: dict):
-    return [(key, config.get(key), obj.get("selector", {}), obj.get("static") == True) for key, obj in variables.items()]
+    return [(key, config.get(key), obj.get("selector", {}), obj.get("static") == True, obj.get("defined") == True) for key, obj in variables.items()]
 
 def _build_context(hass: HomeAssistant, variables: dict, config: dict):
     result = {}
     entity_ids = set()
-    for key, value, selector, is_static in _extract_arguments(variables, config):
+    for key, value, selector, is_static, only_defined in _extract_arguments(variables, config):
         if is_static:
-            result, _ = _convert_argument(hass, key, value, selector, result, set())
+            result, _ = _convert_argument(hass, key, value, selector, only_defined, result, set())
         else:
-            result, entity_ids = _convert_argument(hass, key, value, selector, result, entity_ids)
+            result, entity_ids = _convert_argument(hass, key, value, selector, only_defined, result, entity_ids)
     _LOGGER.debug(f"_build_context: {config}, {result}, {entity_ids}")
     return (result, entity_ids)
 
@@ -277,7 +280,7 @@ class Coordinator(DataUpdateCoordinator):
                 value_ = self._apply_templates(value, result)
             result[key] = value_
             if isinstance(value_, dict) and "selector" in value_:
-                result, _ = _convert_argument(self.hass, key, value_.get("value"), value_.get("selector"), result)
+                result, _ = _convert_argument(self.hass, key, value_.get("value"), value_.get("selector"), False, result)
             _LOGGER.debug(f"async_extend_context: variable {key} = {result[key]}, {type(result[key])}")
         return result
 
@@ -354,7 +357,7 @@ class Coordinator(DataUpdateCoordinator):
         for key, value in entity_tmpl.items():
             if key.startswith("when_") and value:
                 self._trigger_handlers.append(await self._async_create_trigger(key, value, ctx))
-        for key, value, selector, _ in _extract_arguments(arguments, self._config):
+        for key, value, selector, _, _ in _extract_arguments(arguments, self._config):
             if "trigger" in selector and value:
                 self._trigger_handlers.append(await self._async_create_trigger(key, value, ctx))
 
