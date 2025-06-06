@@ -309,7 +309,8 @@ class Coordinator(DataUpdateCoordinator):
     async def _async_create_trigger(self, name: str, config, ctx: dict):
         trigger_conf = self._apply_templates(config, ctx)
         trigger_ = config_validation.TRIGGER_SCHEMA(trigger_conf)
-        _LOGGER.debug(f"_async_create_trigger: {name} / {trigger_conf} / {trigger_}")
+        validated_trigger = await trigger.async_validate_trigger_config(self.hass, trigger_)
+        _LOGGER.debug(f"_async_create_trigger: {name} / {trigger_conf} / {trigger_} / {validated_trigger}")
         async def on_trigger_(trigger_vars, trigger_ctx):
             _LOGGER.debug(f"_async_create_trigger::on_trigger_: {name} / {trigger_} with {trigger_vars} and {trigger_ctx}")
             if self.template_loaded():
@@ -321,7 +322,7 @@ class Coordinator(DataUpdateCoordinator):
                     _LOGGER.debug(f"_async_create_trigger::on_trigger_ call handler {handler_name} with {trigger_vars}")
                     await self.async_execute_action(handler_name, trigger_vars)
         remove_cb = await trigger.async_initialize_triggers(
-            self.hass, trigger_, on_trigger_, domain=DOMAIN, name=name, log_cb=_LOGGER.log,
+            self.hass, validated_trigger, on_trigger_, domain=DOMAIN, name=name, log_cb=_LOGGER.log,
         )
         return remove_cb
     
