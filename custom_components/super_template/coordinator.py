@@ -311,7 +311,7 @@ class Coordinator(DataUpdateCoordinator):
         trigger_ = config_validation.TRIGGER_SCHEMA(trigger_conf)
         validated_trigger = await trigger.async_validate_trigger_config(self.hass, trigger_)
         _LOGGER.debug(f"_async_create_trigger: {name} / {trigger_conf} / {trigger_} / {validated_trigger}")
-        async def on_trigger_(trigger_vars, trigger_ctx):
+        async def on_trigger_(trigger_vars, trigger_ctx = None):
             _LOGGER.debug(f"_async_create_trigger::on_trigger_: {name} / {trigger_} with {trigger_vars} and {trigger_ctx}")
             if self.template_loaded():
                 new_state, changed = await self._async_update_entity(self._template, self._entity_tmpl, op=name)
