@@ -21,6 +21,7 @@ class _Entity(BaseEntity, image.ImageEntity):
     def __init__(self, coordinator: Coordinator):
         BaseEntity.__init__(self, coordinator)
         image.ImageEntity.__init__(self, coordinator.hass)
+        self._last_url = None
 
     @property
     def content_type(self):
@@ -33,6 +34,11 @@ class _Entity(BaseEntity, image.ImageEntity):
     @property
     def image_last_updated(self):
         value = self.coordinator.data.get("value") 
+        url = self.coordinator.data.get("url")
+        if url != self._last_url:
+            self._cached_image = None
+            self._last_url = url
+        self._cached_image = None
         if value and isinstance(value, str):
             return datetime.fromisoformat(value)
         if value and isinstance(value, float):
