@@ -31,10 +31,10 @@ class _Entity(BaseEntity, image.ImageEntity):
         return self.coordinator.data.get("url")
 
     @property
-    def last_updated(self):
+    def image_last_updated(self):
         value = self.coordinator.data.get("value") 
         if value and isinstance(value, str):
             return datetime.fromisoformat(value)
         if value and isinstance(value, float):
-            return datetime.fromtimestamp()
+            return datetime.fromtimestamp(value)
         return None

@@ -28,4 +28,5 @@ DOMAIN_PROPS = {
     "vacuum": ("battery_icon", "battery_level", "fan_speed", "fan_speed_list", "supported_features"), # state == value
     "water_heater": ("min_temp", "max_temp", "target_temperature", "target_temperature_high", "target_temperature_low", "current_temperature", "operation_list", "is_away_mode_on", "precision", "supported_features"), # current_operation == value
     "event": ("types",),
+    "image": ("url", "content_type"),
 }
