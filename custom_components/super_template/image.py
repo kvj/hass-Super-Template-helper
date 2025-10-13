@@ -19,7 +19,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry[Coordinator]
 class _Entity(BaseEntity, image.ImageEntity):
 
     def __init__(self, coordinator: Coordinator):
-        super().__init__(coordinator)
+        BaseEntity.__init__(self, coordinator)
+        image.ImageEntity.__init__(self, coordinator.hass)
 
     @property
     def content_type(self):
