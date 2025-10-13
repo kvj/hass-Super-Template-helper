@@ -22,12 +22,13 @@ from .constants import (
     DOMAIN,
     CONF_TEMPLATE,
     CONF_NAME,
+    CONF_TYPE
 )
 
 from .coordinator import (
     async_get_templates,
     async_get_arguments,
-    async_render_name,
+    async_render_config,
     async_get_template,
 )
 
@@ -63,7 +64,9 @@ async def _build_user_schema(step):
 
 async def _validate_config(step, user_input):
     user_input[CONF_TEMPLATE] = step.options[CONF_TEMPLATE]
-    user_input[CONF_NAME] = await async_render_name(async_get_hass(), user_input[CONF_TEMPLATE], user_input)
+    data = await async_render_config(async_get_hass(), user_input[CONF_TEMPLATE], user_input, ["name", "type"])
+    user_input[CONF_NAME] = data["name"]
+    user_input[CONF_TYPE] = data["type"]
 
     _LOGGER.debug(f"_validate_config: {user_input}, {step.options}, {step.flow_state}")
     # raise SchemaFlowError("not_implemented")

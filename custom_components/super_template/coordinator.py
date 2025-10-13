@@ -142,11 +142,14 @@ def _build_context(hass: HomeAssistant, variables: dict, config: dict):
     _LOGGER.debug(f"_build_context: {config}, {result}, {entity_ids}")
     return (result, entity_ids)
 
-async def async_render_name(hass: HomeAssistant, id: str, config: dict):
+async def async_render_config(hass: HomeAssistant, id: str, config: dict, fields: list) -> dict:
     tmpl = await async_get_template(hass, id)
     ctx, _ = _build_context(hass, await async_get_arguments(hass, tmpl), config)
-    tmpl = template.Template(tmpl.get("name", "").strip(), hass)
-    return tmpl.async_render(ctx)
+    result = {}
+    for field in fields:
+        tmpl_ = template.Template(tmpl.get(field, "").strip(), hass)
+        result[field] = tmpl_.async_render(ctx)
+    return result
 
 class Coordinator(DataUpdateCoordinator):
 
@@ -176,7 +179,8 @@ class Coordinator(DataUpdateCoordinator):
         ctx = await self.async_extend_context(variables, result[SCHEMA_VARIABLES], suppress_errors=True)
         def _template_to_entity_ids(tmpl: template.Template):
             entity_ids.update(tmpl.async_render_to_info(variables=ctx).entities)
-        for key in COMMON_PROPS + DOMAIN_PROPS.get(config.get("type"), ()):
+        entity_type = self._config.get(CONF_TYPE, config.get("type"))
+        for key in COMMON_PROPS + DOMAIN_PROPS.get(entity_type, ()):
             if key in config:
                 if isinstance(config[key], str):
                     result[key] = template.Template(config[key].strip(), self.hass)
@@ -376,7 +380,8 @@ class Coordinator(DataUpdateCoordinator):
         self._event_listeners = []
 
     def forward_setup(self, domain: str, entity_cls):
-        if self.template_loaded() and self._template.get("type") == domain:
+        entity_type = self._config.get(CONF_TYPE, self._template.get("type"))
+        if self.template_loaded() and entity_type == domain:
             return [entity_cls(self)]
         return []
     

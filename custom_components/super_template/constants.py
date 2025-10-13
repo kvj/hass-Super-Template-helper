@@ -1,8 +1,9 @@
 DOMAIN = "super_template"
-PLATFORMS = ["sensor", "binary_sensor", "switch", "button", "climate", "cover", "device_tracker", "light", "lock", "notify", "number", "scene", "select", "siren", "text", "valve", "vacuum", "water_heater", "event"]
+PLATFORMS = ["sensor", "binary_sensor", "switch", "button", "climate", "cover", "device_tracker", "light", "lock", "notify", "number", "scene", "select", "siren", "text", "valve", "vacuum", "water_heater", "event", "image"]
 
 CONF_TEMPLATE = "__template"
 CONF_NAME = "__name"
+CONF_TYPE = "__type"
 
 SCHEMA_ARGUMENTS = "arguments"
 SCHEMA_VARIABLES = "variables"
