@@ -55,8 +55,8 @@ async def _build_config_schema(step: SchemaCommonFlowHandler):
     return vol.Schema(schema)
 
 async def _build_user_schema(step):
-    _LOGGER.debug(f"_build_user_schema:")
     templates = await async_get_templates(async_get_hass())
+    _LOGGER.debug(f"_build_user_schema: {templates}")
     options = [{"value": x[0], "label": x[1]} for x in templates]
     return vol.Schema({
         vol.Required(CONF_TEMPLATE): selector({"select": {"options": options}})

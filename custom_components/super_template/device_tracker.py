@@ -15,7 +15,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry[Coordinator]
     add_entities(coordinator.forward_setup("device_tracker", _Entity))
     return True
 
-class _Entity(BaseEntity, device_tracker.config_entry.TrackerEntity):
+class _Entity(BaseEntity, device_tracker.entity.TrackerEntity):
 
     def __init__(self, coordinator: Coordinator):
         super().__init__(coordinator)
