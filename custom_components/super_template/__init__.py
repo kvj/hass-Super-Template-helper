@@ -81,7 +81,7 @@ async def _async_reload_entries(hass: HomeAssistant):
 
 def _register_coordinator_service(hass: HomeAssistant,  name: str, handler, resp: SupportsResponse = SupportsResponse.NONE):
     async def handler_(call):
-        for entry_id in await service.async_extract_config_entry_ids(hass, call):
+        for entry_id in await service.async_extract_config_entry_ids(call):
             if entry := hass.config_entries.async_get_entry(entry_id):
                 _LOGGER.debug(f"_register_coordinator_service: {name}: {entry.domain}")
                 if entry.domain == DOMAIN:
