@@ -61,6 +61,10 @@ class _Entity(BaseEntity, climate.ClimateEntity):
         return self.data("target_temperature")
 
     @property
+    def target_temperature_step(self):
+        return self.data("target_temperature_step", 1.0)
+
+    @property
     def target_temperature_high(self):
         return self.data("target_temperature_high")
 
