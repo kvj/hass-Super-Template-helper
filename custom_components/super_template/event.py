@@ -33,5 +33,6 @@ class _Entity(BaseEntity, event.EventEntity):
     async def async_on_event(self, name: str, data: dict):
         if name in self.event_types:
             self._trigger_event(name, {**data})
+            self.async_write_ha_state()
         else:
             _LOGGER.warning(f"async_on_event: unsupported event: {name} with {data}")
